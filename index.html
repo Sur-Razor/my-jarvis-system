@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>J.A.R.V.I.S. HUD</title>
+  <style>
+    body { background: #050a14; color: #00f3ff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
+    .core { width: 150px; height: 150px; border-radius: 50%; border: 4px solid #00f3ff; box-shadow: 0 0 30px #00f3ff, inset 0 0 20px #00f3ff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; text-align: center; font-weight: bold; letter-spacing: 2px; }
+    .core.listening { transform: scale(1.1); box-shadow: 0 0 60px #ff3366, inset 0 0 30px #ff3366; border-color: #ff3366; color: #ff3366; }
+    #log { width: 85%; max-width: 600px; height: 200px; margin-top: 25px; background: rgba(0, 243, 255, 0.05); border: 1px solid #00f3ff44; padding: 15px; overflow-y: auto; border-radius: 8px; font-size: 14px; }
+    .chat-bar { width: 85%; max-width: 600px; display: flex; gap: 8px; margin-top: 12px; }
+    input[type="text"] { flex: 1; background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 10px; border-radius: 4px; outline: none; }
+    .controls { margin-top: 12px; display: flex; gap: 10px; }
+    button, input[type="file"] { background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
+    button:hover { background: #00f3ff22; }
+  </style>
+</head>
+<body>
+  <div class="core" id="orb" onclick="startListening()">TAP TO<br>SPEAK</div>
+  <div id="log">System online. Type below or click the core to speak, Sir.</div>
+  
+  <div class="chat-bar">
+    <input type="text" id="textInput" placeholder="Write a command to J.A.R.V.I.S..." onkeydown="if(event.key==='Enter') sendTyped()">
+    <button onclick="sendTyped()">Send</button>
+  </div>
+
+  <div class="controls">
+    <button onclick="setKey()">Set Groq Key</button>
+    <input type="file" id="csvFile" accept=".csv" title="Upload YouTube Studio CSV">
+  </div>
+
+  <script>
+    let studioCsvData = "";
+    document.getElementById('csvFile').addEventListener('change', function(e) {
+      const reader = new FileReader();
+      reader.onload = () => { studioCsvData = reader.result.slice(0, 3000); log("YouTube Studio CSV loaded into memory."); };
+      reader.readAsText(e.target.files);
+    });
+
+    function setKey() {
+      const k = prompt("Paste your Groq API Key (saved only in your browser):");
+      if (k) { localStorage.setItem("groq_key", k); log("Groq API key saved."); }
+    }
+
+    function log(text) {
+      const box = document.getElementById('log');
+      box.innerHTML += `<p>> ${text}</p>`;
+      box.scrollTop = box.scrollHeight;
+    }
+
+    function speak(text) {
+      const utter = new SpeechSynthesisUtterance(text);
+      const voices = speechSynthesis.getVoices();
+      utter.voice = voices.find(v => v.lang.includes('en-GB')) || voices;
+      speechSynthesis.speak(utter);
+    }
+
+    function sendTyped() {
+      const input = document.getElementById('textInput');
+      const msg = input.value.trim();
+      if (!msg) return;
+      input.value = "";
+      log(`YOU: ${msg}`);
+      askJarvis(msg);
+    }
+
+    async function askJarvis(userText) {
+      const key = localStorage.getItem("groq_key");
+      if (!key) return alert("Click 'Set Groq Key' first.");
+      
+      let liveStats = "{}";
+      try { liveStats = await (await fetch('./stats.json')).text(); } catch (e) {}
+
+      const res = await fetch("https://groq.com", {
+        method: "POST",
+        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          model: "llama-3.3-70b-versatile",
+          messages: [
+            { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers concise. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
+            { role: "user", content: userText }
+          ]
+        })
+      });
+      const data = await res.json();
+      const reply = data.choices.message.content;
+      log(`JARVIS: ${reply}`);
+      speak(reply);
+    }
+
+    function startListening() {
+      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+      if (!SpeechRecognition) return alert("Voice recognition is not supported in this browser. Use the text box below.");
+      const recognition = new SpeechRecognition();
+      const orb = document.getElementById('orb');
+      recognition.onstart = () => { orb.classList.add('listening'); orb.innerHTML = "LISTENING..."; };
+      recognition.onend = () => { orb.classList.remove('listening'); orb.innerHTML = "TAP TO<br>SPEAK"; };
+      recognition.onresult = (e) => {
+        const transcript = e.results.transcript;
+        log(`YOU: ${transcript}`);
+        askJarvis(transcript);
+      };
+      recognition.start();
+    }
+  </script>
+</body>
+</html>
