@@ -2,44 +2,50 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>J.A.R.V.I.S. HUD</title>
   <style>
     body { background: #050a14; color: #00f3ff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
     .core { width: 150px; height: 150px; border-radius: 50%; border: 4px solid #00f3ff; box-shadow: 0 0 30px #00f3ff, inset 0 0 20px #00f3ff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; text-align: center; font-weight: bold; letter-spacing: 2px; }
     .core.listening { transform: scale(1.1); box-shadow: 0 0 60px #ff3366, inset 0 0 30px #ff3366; border-color: #ff3366; color: #ff3366; }
-    #log { width: 85%; max-width: 600px; height: 200px; margin-top: 25px; background: rgba(0, 243, 255, 0.05); border: 1px solid #00f3ff44; padding: 15px; overflow-y: auto; border-radius: 8px; font-size: 14px; }
-    .chat-bar { width: 85%; max-width: 600px; display: flex; gap: 8px; margin-top: 12px; }
+    .core.speaking { box-shadow: 0 0 50px #00ff88, inset 0 0 25px #00ff88; border-color: #00ff88; color: #00ff88; }
+    #log { width: 88%; max-width: 600px; height: 210px; margin-top: 20px; background: rgba(0, 243, 255, 0.05); border: 1px solid #00f3ff44; padding: 15px; overflow-y: auto; border-radius: 8px; font-size: 14px; }
+    .chat-bar { width: 88%; max-width: 600px; display: flex; gap: 8px; margin-top: 12px; }
     input[type="text"] { flex: 1; background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 10px; border-radius: 4px; outline: none; }
-    .controls { margin-top: 12px; display: flex; gap: 10px; }
-    button, input[type="file"] { background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
-    button:hover { background: #00f3ff22; }
+    .controls { margin-top: 12px; display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+    button, input[type="file"] { background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 8px 14px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+    button.active-call { background: #ff3366; color: #fff; border-color: #ff3366; }
   </style>
 </head>
 <body>
-  <div class="core" id="orb" onclick="startListening()">TAP TO<br>SPEAK</div>
-  <div id="log">System online. Type below or click the core to speak, Sir.</div>
+  <div class="core" id="orb" onclick="startListening(false)">TAP TO<br>SPEAK</div>
+  <div id="log">System online. Text below or tap 'Call J.A.R.V.I.S.' for live voice, Sir.</div>
   
   <div class="chat-bar">
-    <input type="text" id="textInput" placeholder="Write a command to J.A.R.V.I.S..." onkeydown="if(event.key==='Enter') sendTyped()">
+    <input type="text" id="textInput" placeholder="Write to J.A.R.V.I.S..." onkeydown="if(event.key==='Enter') sendTyped()">
     <button onclick="sendTyped()">Send</button>
   </div>
 
   <div class="controls">
-    <button onclick="setKey()">Set Groq Key</button>
+    <button id="callBtn" onclick="toggleCall()">📞 Call J.A.R.V.I.S.</button>
+    <button onclick="setKey()">Set API Key</button>
     <input type="file" id="csvFile" accept=".csv" title="Upload YouTube Studio CSV">
   </div>
 
   <script>
     let studioCsvData = "";
+    let inCall = false;
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
     document.getElementById('csvFile').addEventListener('change', function(e) {
       const reader = new FileReader();
-      reader.onload = () => { studioCsvData = reader.result.slice(0, 3000); log("YouTube Studio CSV loaded into memory."); };
+      reader.onload = () => { studioCsvData = reader.result.slice(0, 3000); log("YouTube Studio CSV loaded."); };
       reader.readAsText(e.target.files[0]);
     });
 
     function setKey() {
-      const k = prompt("Paste your Groq API Key (saved only in your browser):");
-      if (k) { localStorage.setItem("groq_key", k.trim()); log("Groq API key saved."); }
+      const k = prompt("Paste your OpenRouter API Key (sk-or-v1-...):");
+      if (k) { localStorage.setItem("or_key", k.trim()); log("API key saved."); }
     }
 
     function log(text) {
@@ -48,10 +54,34 @@
       box.scrollTop = box.scrollHeight;
     }
 
-    function speak(text) {
+    function toggleCall() {
+      inCall = !inCall;
+      const btn = document.getElementById('callBtn');
+      if (inCall) {
+        btn.classList.add('active-call');
+        btn.innerText = "🔴 End Call";
+        log("Call connected.");
+        speak("Online and listening, Sir.", () => startListening(true));
+      } else {
+        btn.classList.remove('active-call');
+        btn.innerText = "📞 Call J.A.R.V.I.S.";
+        speechSynthesis.cancel();
+        log("Call ended.");
+      }
+    }
+
+    function speak(text, onDone) {
+      speechSynthesis.cancel();
       const utter = new SpeechSynthesisUtterance(text);
       const voices = speechSynthesis.getVoices();
       utter.voice = voices.find(v => v.lang.includes('en-GB')) || voices[0];
+      const orb = document.getElementById('orb');
+      utter.onstart = () => { orb.classList.add('speaking'); orb.innerHTML = "SPEAKING..."; };
+      utter.onend = () => {
+        orb.classList.remove('speaking');
+        orb.innerHTML = "TAP TO<br>SPEAK";
+        if (onDone && inCall) onDone();
+      };
       speechSynthesis.speak(utter);
     }
 
@@ -61,52 +91,53 @@
       if (!msg) return;
       input.value = "";
       log(`YOU: ${msg}`);
-      askJarvis(msg);
+      askJarvis(msg, false);
     }
 
-    async function askJarvis(userText) {
-      const key = localStorage.getItem("groq_key");
-      if (!key) return alert("Click 'Set Groq Key' first.");
+    async function askJarvis(userText, loopAfter) {
+      const key = localStorage.getItem("or_key");
+      if (!key) return alert("Click 'Set API Key' first.");
       
       let liveStats = "{}";
       try { liveStats = await (await fetch('./stats.json')).text(); } catch (e) {}
 
       try {
-        const res = await fetch("https://groq.com", {
+        const res = await fetch("https://openrouter.ai", {
           method: "POST",
-          headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+          headers: {
+            "Authorization": `Bearer ${key}`,
+            "HTTP-Referer": window.location.href,
+            "X-Title": "JARVIS HUD",
+            "Content-Type": "application/json"
+          },
           body: JSON.stringify({
-            model: "llama-3.3-70b-versatile",
+            model: "meta-llama/llama-3.3-70b-instruct:free",
             messages: [
-              { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers concise. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
+              { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers brief and natural for spoken conversation. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
               { role: "user", content: userText }
             ]
           })
         });
         const data = await res.json();
-        if (data.error) {
-          log(`ERROR: ${data.error.message}`);
-          return;
-        }
+        if (data.error) { log(`ERROR: ${data.error.message}`); return; }
         const reply = data.choices[0].message.content;
         log(`JARVIS: ${reply}`);
-        speak(reply);
+        speak(reply, loopAfter ? () => startListening(true) : null);
       } catch (err) {
         log(`CONNECTION ERROR: ${err.message}`);
       }
     }
 
-    function startListening() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      if (!SpeechRecognition) return alert("Voice recognition is not supported in this browser. Use the text box below.");
+    function startListening(loopMode) {
+      if (!SpeechRecognition) return alert("Use Chrome or Safari for voice.");
       const recognition = new SpeechRecognition();
       const orb = document.getElementById('orb');
       recognition.onstart = () => { orb.classList.add('listening'); orb.innerHTML = "LISTENING..."; };
-      recognition.onend = () => { orb.classList.remove('listening'); orb.innerHTML = "TAP TO<br>SPEAK"; };
+      recognition.onend = () => { orb.classList.remove('listening'); if (!inCall) orb.innerHTML = "TAP TO<br>SPEAK"; };
       recognition.onresult = (e) => {
         const transcript = e.results[0][0].transcript;
         log(`YOU: ${transcript}`);
-        askJarvis(transcript);
+        askJarvis(transcript, loopMode);
       };
       recognition.start();
     }
