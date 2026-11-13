@@ -1,88 +1,29 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <title>J.A.R.V.I.S. HUD</title>
-  <style>
-    body { background: #050a14; color: #00f3ff; font-family: 'Segoe UI', sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; }
-    .core { width: 160px; height: 160px; border-radius: 50%; border: 4px solid #00f3ff; box-shadow: 0 0 30px #00f3ff, inset 0 0 20px #00f3ff; display: flex; align-items: center; justify-content: center; cursor: pointer; transition: 0.3s; text-align: center; font-weight: bold; letter-spacing: 2px; }
-    .core.listening { transform: scale(1.1); box-shadow: 0 0 60px #ff3366, inset 0 0 30px #ff3366; border-color: #ff3366; color: #ff3366; }
-    #log { width: 80%; max-width: 600px; height: 180px; margin-top: 30px; background: rgba(0, 243, 255, 0.05); border: 1px solid #00f3ff44; padding: 15px; overflow-y: auto; border-radius: 8px; font-size: 14px; }
-    .controls { margin-top: 15px; display: flex; gap: 10px; }
-    button, input[type="file"] { background: #0a192f; color: #00f3ff; border: 1px solid #00f3ff; padding: 8px 14px; border-radius: 4px; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <div class="core" id="orb" onclick="startListening()">TAP TO<br>SPEAK</div>
-  <div id="log">System online. Click the core to speak, Sir.</div>
-  <div class="controls">
-    <button onclick="setKey()">Set Groq Key</button>
-    <input type="file" id="csvFile" accept=".csv" title="Upload YouTube Studio CSV">
-  </div>
+name: JARVIS Sentinel
+on:
+  schedule:
+    - cron: '0 * * * *'
+  workflow_dispatch:
 
-  <script>
-    let studioCsvData = "";
-    document.getElementById('csvFile').addEventListener('change', function(e) {
-      const reader = new FileReader();
-      reader.onload = () => { studioCsvData = reader.result.slice(0, 3000); log("YouTube Studio CSV loaded into memory."); };
-      reader.readAsText(e.target.files[0]);
-    });
+jobs:
+  run-jarvis:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install yt-dlp requests
+      - env:
+          GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+          TG_TOKEN: ${{ secrets.TG_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          TG_USERNAME: ${{ secrets.TG_USERNAME }}
+        run: python monitor.py
+      - name: Save memory
+        run: |
+          git config user.name "JARVIS Bot"
+          git config user.email "jarvis@://github.com"
+          git add stats.json
+          git commit -m "Update YouTube stats memory" || exit 0
+          git push
 
-    function setKey() {
-      const k = prompt("Paste your Groq API Key (saved only in your browser):");
-      if (k) localStorage.setItem("groq_key", k);
-    }
-
-    function log(text) {
-      const box = document.getElementById('log');
-      box.innerHTML += `<p>> ${text}</p>`;
-      box.scrollTop = box.scrollHeight;
-    }
-
-    function speak(text) {
-      const utter = new SpeechSynthesisUtterance(text);
-      const voices = speechSynthesis.getVoices();
-      utter.voice = voices.find(v => v.lang.includes('en-GB')) || voices[0];
-      speechSynthesis.speak(utter);
-    }
-
-    async function askJarvis(userText) {
-      const key = localStorage.getItem("groq_key");
-      if (!key) return alert("Click 'Set Groq Key' first.");
-      
-      let liveStats = "{}";
-      try { liveStats = await (await fetch('./stats.json')).text(); } catch (e) {}
-
-      const res = await fetch("https://groq.com", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers short for voice playback. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
-            { role: "user", content: userText }
-          ]
-        })
-      });
-      const data = await res.json();
-      const reply = data.choices[0].message.content;
-      log(`JARVIS: ${reply}`);
-      speak(reply);
-    }
-
-    function startListening() {
-      const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-      const recognition = new SpeechRecognition();
-      const orb = document.getElementById('orb');
-      recognition.onstart = () => { orb.classList.add('listening'); orb.innerHTML = "LISTENING..."; };
-      recognition.onend = () => { orb.classList.remove('listening'); orb.innerHTML = "TAP TO<br>SPEAK"; };
-      recognition.onresult = (e) => {
-        const transcript = e.results[0][0].transcript;
-        log(`YOU: ${transcript}`);
-        askJarvis(transcript);
-      };
-      recognition.start();
-    }
-  </script>
-</body>
-</html>
