@@ -34,12 +34,12 @@
     document.getElementById('csvFile').addEventListener('change', function(e) {
       const reader = new FileReader();
       reader.onload = () => { studioCsvData = reader.result.slice(0, 3000); log("YouTube Studio CSV loaded into memory."); };
-      reader.readAsText(e.target.files);
+      reader.readAsText(e.target.files[0]);
     });
 
     function setKey() {
       const k = prompt("Paste your Groq API Key (saved only in your browser):");
-      if (k) { localStorage.setItem("groq_key", k); log("Groq API key saved."); }
+      if (k) { localStorage.setItem("groq_key", k.trim()); log("Groq API key saved."); }
     }
 
     function log(text) {
@@ -51,7 +51,7 @@
     function speak(text) {
       const utter = new SpeechSynthesisUtterance(text);
       const voices = speechSynthesis.getVoices();
-      utter.voice = voices.find(v => v.lang.includes('en-GB')) || voices;
+      utter.voice = voices.find(v => v.lang.includes('en-GB')) || voices[0];
       speechSynthesis.speak(utter);
     }
 
@@ -71,21 +71,29 @@
       let liveStats = "{}";
       try { liveStats = await (await fetch('./stats.json')).text(); } catch (e) {}
 
-      const res = await fetch("https://groq.com", {
-        method: "POST",
-        headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
-        body: JSON.stringify({
-          model: "llama-3.3-70b-versatile",
-          messages: [
-            { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers concise. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
-            { role: "user", content: userText }
-          ]
-        })
-      });
-      const data = await res.json();
-      const reply = data.choices.message.content;
-      log(`JARVIS: ${reply}`);
-      speak(reply);
+      try {
+        const res = await fetch("https://groq.com", {
+          method: "POST",
+          headers: { "Authorization": `Bearer ${key}`, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: `You are J.A.R.V.I.S. Address the user as Sir. Keep answers concise. Latest public YouTube stats: ${liveStats}. Private Studio CSV data: ${studioCsvData}` },
+              { role: "user", content: userText }
+            ]
+          })
+        });
+        const data = await res.json();
+        if (data.error) {
+          log(`ERROR: ${data.error.message}`);
+          return;
+        }
+        const reply = data.choices[0].message.content;
+        log(`JARVIS: ${reply}`);
+        speak(reply);
+      } catch (err) {
+        log(`CONNECTION ERROR: ${err.message}`);
+      }
     }
 
     function startListening() {
@@ -96,7 +104,7 @@
       recognition.onstart = () => { orb.classList.add('listening'); orb.innerHTML = "LISTENING..."; };
       recognition.onend = () => { orb.classList.remove('listening'); orb.innerHTML = "TAP TO<br>SPEAK"; };
       recognition.onresult = (e) => {
-        const transcript = e.results.transcript;
+        const transcript = e.results[0][0].transcript;
         log(`YOU: ${transcript}`);
         askJarvis(transcript);
       };
